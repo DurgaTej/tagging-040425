@@ -1,0 +1,71 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS Config Custom Rule StackSet
+
+Parameters:
+  LambdaFunctionARN:
+    Type: String
+    Description: ARN of the AWS Config validation Lambda function
+
+Resources:
+
+  # ✅ Ensure AWS Config Recorder is Enabled
+  ConfigRecorder:
+    Type: AWS::Config::ConfigurationRecorder
+    Properties:
+      Name: default
+      RoleARN: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-config-role"
+      RecordingGroup:
+        AllSupported: true
+        IncludeGlobalResourceTypes: true
+
+  # ✅ Ensure AWS Config Delivery Channel is Enabled
+  ConfigDeliveryChannel:
+    Type: AWS::Config::DeliveryChannel
+    DependsOn: ConfigRecorder
+    Properties:
+      Name: default
+      S3BucketName: !Ref ConfigS3Bucket
+      ConfigSnapshotDeliveryProperties:
+        DeliveryFrequency: TwentyFour_Hours
+
+  # ✅ Ensure AWS Config Starts Recording
+  ConfigRecorderStatus:
+    Type: AWS::Config::ConfigurationRecorderStatus
+    DependsOn: ConfigDeliveryChannel
+    Properties:
+      Name: default
+      RecordingEnabled: true
+
+  # ✅ S3 Bucket for AWS Config Logs (You can use an existing one)
+  ConfigS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "aws-config-logs-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # ✅ Proactive Config Rule for mmsystem Tag Validation
+  ConfigCustomRule:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigRecorderStatus  # Ensure AWS Config is running first
+    Properties:
+      ConfigRuleName: ValidateMmsystemTagRule
+      Description: "Proactively ensures newly created resources have the 'mmsystem' tag with valid values."
+      Scope:
+        ComplianceResourceTypes: []
+      Source:
+        Owner: AWS
+        SourceIdentifier: RESOURCE_TAG_PROACTIVE_CHECK  # ✅ Proactive Rule
+      InputParameters:
+        key: "mmsystem"
+        value: "ValidTag1,ValidTag2,ValidTag3"
+      MaximumExecutionFrequency: TwentyFour_Hours
+
+Outputs:
+  ConfigRuleARN:
+    Description: "ARN of the AWS Config Proactive Rule"
+    Value: !Ref ConfigCustomRule
+

@@ -1,0 +1,61 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS Config Custom Rule Lambda StackSet
+
+Parameters:
+  ConfigLambdaRoleARN:
+    Type: String
+    Description: ARN of the IAM Role for Lambda execution
+
+Resources:
+  ConfigValidationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ConfigTagValidationLambda
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !Ref ConfigLambdaRoleARN
+      Timeout: 30
+      MemorySize: 256
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          
+          def lambda_handler(event, context):
+              client = boto3.client("resourcegroupstaggingapi")
+              compliant_values = ["Value1", "Value2", "Value3"]  # Define valid values
+              
+              resource_id = event.get("resourceId")
+              resource_arn = event.get("resourceArn")
+              
+              if not resource_id or not resource_arn:
+                  return {"message": "Invalid event format"}
+              
+              tags = client.get_resources(ResourceARNList=[resource_arn])
+              
+              mmsystem_tag = None
+              for tag in tags.get("ResourceTagMappingList", []):
+                  for t in tag.get("Tags", []):
+                      if t["Key"] == "mmsystem":
+                          mmsystem_tag = t["Value"]
+                          break
+              
+              if mmsystem_tag:
+                  if mmsystem_tag in compliant_values:
+                      compliance_status = "compliant"
+                  else:
+                      compliance_status = "mmsystem tag exist but Value is not compliant"
+              else:
+                  compliance_status = "mmsystem tag does not exist"
+              
+              client.tag_resources(
+                  ResourceARNList=[resource_arn],
+                  Tags={"mmcompliant": compliance_status}
+              )
+              
+              return {"resourceId": resource_id, "compliance": compliance_status}
+      
+Outputs:
+  LambdaFunctionARN:
+    Description: ARN of the AWS Config validation Lambda function
+    Value: !GetAtt ConfigValidationLambda.Arn
