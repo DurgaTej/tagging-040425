@@ -1,0 +1,163 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS Config Custom Rule StackSet with IAM Role, Lambda, and AWS Config Rule
+
+Resources:
+
+  # 1️⃣ IAM Role for Lambda Execution
+  ConfigLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ConfigLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              AWS:
+                - arn:aws:iam::984505168843:user/gopikrishna
+                - arn:aws:iam::984505168843:user/durgatej
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ConfigLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - config:PutEvaluations
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - tag:GetResources
+                  - tag:GetTagValues
+                  - tag:GetTagKeys
+                  - tag:TagResources
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  # 2️⃣ Lambda Function for AWS Config Custom Rule
+  ConfigValidationLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: ConfigLambdaRole  # Ensure IAM Role is created first
+    Properties:
+      FunctionName: ConfigTagValidationLambda
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !GetAtt ConfigLambdaRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import urllib3
+          import os
+
+          # Allowed values for the "mmsystem" tag
+          ALLOWED_VALUES = {"finance", "hr", "it", "marketing", "sales"}
+
+          config_client = boto3.client("config")
+
+
+          def lambda_handler(event, context):
+              print("Received event:", json.dumps(event))
+
+              invoking_event = json.loads(event["invokingEvent"])
+              configuration_item = invoking_event["configurationItem"]
+
+              resource_id = configuration_item["resourceId"]
+              resource_type = configuration_item["resourceType"]
+
+              compliance_type = "COMPLIANT"
+
+              # Check if the resource has tags
+              tags = configuration_item.get("tags", {})
+
+              if "mmsystem" not in tags:
+                  compliance_type = "NON_COMPLIANT"
+                  annotation = "Missing required 'mmsystem' tag."
+              elif tags["mmsystem"] not in ALLOWED_VALUES:
+                  compliance_type = "NON_COMPLIANT"
+                  annotation = f"Invalid 'mmsystem' value: {tags['mmsystem']}. Allowed values: {', '.join(ALLOWED_VALUES)}."
+              else:
+                  annotation = "'mmsystem' tag is present and valid."
+
+              # Report compliance status to AWS Config
+              response = config_client.put_evaluations(
+                  Evaluations=[
+                      {
+                          "ComplianceResourceType": resource_type,
+                          "ComplianceResourceId": resource_id,
+                          "ComplianceType": compliance_type,
+                          "Annotation": annotation,
+                          "OrderingTimestamp": configuration_item["configurationItemCaptureTime"],
+                      }
+                  ],
+                  ResultToken=event["resultToken"],
+              )
+
+              return response
+
+  ConfigLambdaInvokePermission:
+      Type: AWS::Lambda::Permission
+      DependsOn: ConfigValidationLambda  # Ensure Lambda exists before applying permissions
+      Properties:
+        Action: lambda:InvokeFunction
+        FunctionName: !Ref ConfigValidationLambda
+        Principal: config.amazonaws.com
+
+  # 3️⃣ AWS Config Custom Rule
+  ConfigCustomRule:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigValidationLambda  # Ensure Lambda function is created first
+    Properties:
+      ConfigRuleName: ValidateMmsystemTagRule
+      Description: Ensures newly created resources have the 'mmsystem' tag with valid values.
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceIdentifier: !GetAtt ConfigValidationLambda.Arn
+        SourceDetails:
+          - EventSource: aws.config
+            MessageType: ConfigurationItemChangeNotification
+      Scope:
+        ComplianceResourceTypes: [] # Empty means it applies to all resource types
+
+Resources:
+  # ✅ Proactive Config Rule for mmsystem Tag Validation
+  ConfigCustomRule:
+    Type: AWS::Config::ConfigRule
+    DependsOn: ConfigRecorderStatus  # Ensure AWS Config is running first
+    Properties:
+      ConfigRuleName: ValidateMmsystemTagRule
+      Description: "Proactively ensures newly created resources have the 'mmsystem' tag with valid values."
+      Scope:
+        ComplianceResourceTypes: []
+      Source:
+        Owner: AWS
+        SourceIdentifier: RESOURCE_TAG_PROACTIVE_CHECK  # ✅ Proactive Rule
+      InputParameters:
+        key: "mmsystem"
+        value: "ValidTag1,ValidTag2,ValidTag3"
+      MaximumExecutionFrequency: TwentyFour_Hours
+
+Outputs:
+  ConfigLambdaRoleARN:
+    Description: ARN of the IAM Role for Lambda execution
+    Value: !GetAtt ConfigLambdaRole.Arn
+
+  LambdaFunctionARN:
+    Description: ARN of the AWS Config validation Lambda function
+    Value: !GetAtt ConfigValidationLambda.Arn
+
+  ConfigRuleName:
+    Description: Name of the AWS Config custom rule
+    Value: !Ref ConfigCustomRule

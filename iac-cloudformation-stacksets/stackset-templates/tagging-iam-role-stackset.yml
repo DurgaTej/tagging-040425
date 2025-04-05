@@ -1,0 +1,50 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS Config Custom Rule StackSet with IAM Role, Lambda, and AWS Config Rule
+
+Resources:
+  
+  # 1️⃣ IAM Role for Lambda Execution
+  ConfigLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ConfigLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              AWS:
+                - arn:aws:iam::984505168843:user/gopikrishna
+                - arn:aws:iam::984505168843:user/durgatej
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ConfigLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - config:PutEvaluations
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - tag:GetResources
+                  - tag:GetTagValues
+                  - tag:GetTagKeys
+                  - tag:TagResources
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+                
+Outputs:
+  ConfigLambdaRoleARN:
+    Description: ARN of the IAM Role for Lambda execution
+    Value: !GetAtt ConfigLambdaRole.Arn

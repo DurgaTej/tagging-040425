@@ -1,0 +1,24 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS Config Custom Rule StackSet
+
+Resources:
+
+  mmTagValidationConfigRule:
+    Type: AWS::Config::ConfigRule
+    Properties:
+      ConfigRuleName: mmTagValidationConfigRule
+      EvaluationModes:
+      - Mode: "PROACTIVE"
+      - Mode: "DETECTIVE"
+      Description: Ensures newly created resources have the 'mmsystem' tag with valid values.
+      Source:
+        Owner: CUSTOM_LAMBDA
+        SourceIdentifier: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mmTagValidationLambda
+        SourceDetails:
+          - EventSource: aws.config
+            MessageType: ConfigurationItemChangeNotification
+
+Outputs:
+  ConfigRuleARN:
+    Description: "ARN of the AWS Config Proactive Rule"
+    Value: !GetAtt mmTagValidationConfigRule.Arn

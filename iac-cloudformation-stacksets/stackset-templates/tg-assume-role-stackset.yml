@@ -1,0 +1,110 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: IAM Role StackSet for AWS Config Custom Rule Lambda with full tagging permissions
+
+Resources:
+  mmTagValidationLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: mmTagValidationLambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+          - Effect: Allow
+            Principal:
+              AWS:
+                - arn:aws:iam::984505168843:user/gopikrishna
+                - arn:aws:iam::984505168843:user/durgatej
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ConfigLambdaPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - config:PutEvaluations
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - tag:GetResources
+                  - tag:GetTagValues
+                  - tag:GetTagKeys
+                  - tag:TagResources
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ec2:CreateTags
+                  - rds:AddTagsToResource
+                  - s3:PutBucketTagging
+                  - lambda:TagResource
+                  - logs:TagLogGroup
+                  - dynamodb:TagResource
+                  - apigateway:TagResource
+                  - cloudwatch:TagResource
+                  - elasticloadbalancing:AddTags
+                  - kms:TagResource
+                  - cloudformation:TagResource
+                  - sns:TagResource
+                  - sqs:TagQueue
+                  - elasticache:AddTagsToResource
+                  - es:AddTags
+                  - ssm:AddTagsToResource
+                  - efs:CreateTags
+                  - ecr:TagResource
+                  - ecs:TagResource
+                  - eks:TagResource
+                  - glue:TagResource
+                  - logs:TagResource
+                  - iam:TagRole
+                  - iam:TagPolicy
+                  - iam:TagUser
+                  - iam:TagGroup
+                  - kinesis:AddTagsToStream
+                  - firehose:TagDeliveryStream
+                  - cloudtrail:AddTags
+                  - route53:ChangeTagsForResource
+                  - cloudfront:TagResource
+                  - acm:AddTagsToCertificate
+                  - secretsmanager:TagResource
+                  - states:TagResource
+                  - sagemaker:AddTags
+                  - codebuild:TagResource
+                  - codepipeline:TagResource
+                  - codedeploy:AddTagsToOnPremisesInstances
+                  - dax:TagResource
+                  - redshift:CreateTags
+                  - docdb:AddTagsToResource
+                  - mediastore:TagResource
+                  - medialive:TagResource
+                  - mediapackage:TagResource
+                  - mediaconvert:TagResource
+                  - appsync:TagResource
+                  - cognito-idp:TagResource
+                  - iot:TagResource
+                  - timestream:TagResource
+                  - qldb:TagResource
+                  - neptune:AddTagsToResource
+                  - transfer:TagResource
+                  - fsx:TagResource
+                  - backup:TagResource
+                  - wafv2:TagResource
+                  - organizations:TagResource
+                Resource: "*"
+
+
+Outputs:
+  ConfigLambdaRoleARN:
+    Description: ARN of the IAM Role for the AWS Config Custom Rule Lambda
+    Value: !GetAtt mmTagValidationLambdaExecutionRole.Arn
+    Export:
+      Name: ConfigLambdaRoleARN
