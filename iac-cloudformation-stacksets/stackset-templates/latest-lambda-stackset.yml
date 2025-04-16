@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS Config Custom Rule Lambda StackSet
+
+Resources:
+  mmTagValidationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: mmTagValidationLambda
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !Sub arn:aws:iam::${AWS::AccountId}:role/mmTagValidationLambdaExecutionRole
+      Timeout: 30
+      MemorySize: 256
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+
+          # Allowed values for the "mmsystem" tag
+          ALLOWED_VALUES = {"finance", "hr", "it", "marketing", "sales"}
+
+          config_client = boto3.client("config")
+          tagging_client = boto3.client("resourcegroupstaggingapi")
+
+          def lambda_handler(event, context):
+              print("Received event:", json.dumps(event))
+
+              invoking_event = json.loads(event["invokingEvent"])
+              configuration_item = invoking_event["configurationItem"]
+
+              resource_id = configuration_item["resourceId"]
+              resource_type = configuration_item["resourceType"]
+              resource_arn = configuration_item.get("ARN")
+
+              compliance_type = "COMPLIANT"
+              mm_compliance_value = "compliant"
+              tags = configuration_item.get("tags", {})
+
+              if "mmsystem" not in tags:
+                  compliance_type = "NON_COMPLIANT"
+                  annotation = "Missing required 'mmsystem' tag."
+                  mm_compliance_value = "non-compliant: missing mmsystem"
+              elif tags["mmsystem"] not in ALLOWED_VALUES:
+                  compliance_type = "NON_COMPLIANT"
+                  annotation = f"Invalid 'mmsystem' value: {tags['mmsystem']}. Allowed values: {', '.join(ALLOWED_VALUES)}."
+                  mm_compliance_value = f"non-compliant: invalid mmsystem value {tags['mmsystem']}"
+              else:
+                  annotation = "'mmsystem' tag is present and valid."
+
+              # Report compliance to AWS Config
+              response = config_client.put_evaluations(
+                  Evaluations=[
+                      {
+                          "ComplianceResourceType": resource_type,
+                          "ComplianceResourceId": resource_id,
+                          "ComplianceType": compliance_type,
+                          "Annotation": annotation,
+                          "OrderingTimestamp": configuration_item["configurationItemCaptureTime"],
+                      }
+                  ],
+                  ResultToken=event["resultToken"],
+              )
+
+              # Use tags from Config snapshot to check mmcompliance
+              current_mmcompliance = tags.get("mmcompliance")
+              if current_mmcompliance != mm_compliance_value:
+                  try:
+                      tagging_client.tag_resources(
+                          ResourceARNList=[resource_arn],
+                          Tags={"mmcompliance": mm_compliance_value}
+                      )
+                      print(
+                          f"Updated mmcompliance tag from '{current_mmcompliance}' to '{mm_compliance_value}' on {resource_arn}"
+                      )
+                  except Exception as e:
+                      print(f"Error tagging resource {resource_arn}: {e}")
+              else:
+                  print(
+                      f"No update needed. Resource {resource_arn} already has mmcompliance = '{mm_compliance_value}'"
+                  )
+
+              return response
+
+  mmTagValidationLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    DependsOn: mmTagValidationLambda
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref mmTagValidationLambda
+      Principal: config.amazonaws.com
+
+Outputs:
+  LambdaFunctionARN:
+    Description: ARN of the AWS Config validation Lambda function
+    Value: !GetAtt mmTagValidationLambda.Arn
+    Export:
+      Name: LambdaFunctionARN
